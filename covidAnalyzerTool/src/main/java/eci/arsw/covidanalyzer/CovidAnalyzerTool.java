@@ -17,22 +17,43 @@ import java.util.stream.Stream;
  * A Camel Application
  */
 public class CovidAnalyzerTool {
-
-    private ResultAnalyzer resultAnalyzer;
+	
+    public static ResultAnalyzer resultAnalyzer;
     private TestReader testReader;
     private int amountOfFilesTotal;
-    private AtomicInteger amountOfFilesProcessed;
+    public static AtomicInteger amountOfFilesProcessed;
+	public static Object monitor;
+	public static boolean pause;
+	private static ArrayList<CovidAnalyzerToolThread> hilos;
+	private int numeroHilos;
 
     public CovidAnalyzerTool() {
         resultAnalyzer = new ResultAnalyzer();
         testReader = new TestReader();
         amountOfFilesProcessed = new AtomicInteger();
+		numeroHilos=5;
+		hilos= new ArrayList<CovidAnalyzerToolThread>();
     }
 
     public void processResultData() {
         amountOfFilesProcessed.set(0);
         List<File> resultFiles = getResultFileList();
         amountOfFilesTotal = resultFiles.size();
+		int inicio=0;
+		int fin=numeroHilos;
+		int repartidos=amountOfFilesTotal/numeroHilos;
+		for (int i=0;i<numeroHilos;i++){
+			if((i+1==numeroHilos)&&fin<amountOfFilesTotal){
+				fin=amountOfFilesTotal;
+			}
+			CovidAnalyzerToolThread nuevoHilo= new CovidAnalyzerToolThread(resultFiles.subList(inicio,fin));
+			inicio=fin;
+			fin= fin + repartidos;
+			nuevoHilo.start();
+			hilos.add(nuevoHilo);
+		}
+		
+		
         for (File resultFile : resultFiles) {
             List<Result> results = testReader.readResultsFromFile(resultFile);
             for (Result result : results) {
@@ -62,13 +83,23 @@ public class CovidAnalyzerTool {
      */
     public static void main(String... args) throws Exception {
         CovidAnalyzerTool covidAnalyzerTool = new CovidAnalyzerTool();
-        Thread processingThread = new Thread(() -> covidAnalyzerTool.processResultData());
-        processingThread.start();
+		covidAnalyzerTool.processResultData();
+		System.out.println("Presione Enter si desea pausar y ver resultados parciales");
         while (true) {
             Scanner scanner = new Scanner(System.in);
             String line = scanner.nextLine();
-            if (line.contains("exit"))
-                break;
+            if (line.contains("exit")){
+				if (!pause==false){
+					pause=true;
+				}
+				else if (pause==true){
+					pause=false;
+				}
+				for (CovidAnalyzerToolThread hilosCovid : hilos){
+					hilosCovid.continuar();
+				}
+				break;
+			}
             String message = "Processed %d out of %d files.\nFound %d positive people:\n%s";
             Set<Result> positivePeople = covidAnalyzerTool.getPositivePeople();
             String affectedPeople = positivePeople.stream().map(Result::toString).reduce("", (s1, s2) -> s1 + "\n" + s2);
@@ -76,6 +107,4 @@ public class CovidAnalyzerTool {
             System.out.println(message);
         }
     }
-
 }
-
